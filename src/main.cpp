@@ -43,17 +43,19 @@ void setup() {
 }
 
 // Helper to control a single motor channel
-// speed: -255 to 255 (negative = reverse)
 void setMotor(int speed, int pinIn1, int pinIn2, int channel) {
-    if (speed > 10) { // Forward with deadzone
+    // constrain speed to valid PWM range
+    speed = constrain(speed, -255, 255);
+
+    if (speed > 20) { // Forward (positive speed)
         digitalWrite(pinIn1, HIGH);
         digitalWrite(pinIn2, LOW);
         ledcWrite(channel, speed);
-    } else if (speed < -10) { // Backward with deadzone
+    } else if (speed < -20) { // Backward (negative speed)
         digitalWrite(pinIn1, LOW);
         digitalWrite(pinIn2, HIGH);
         ledcWrite(channel, abs(speed));
-    } else { // Stop
+    } else { // Stop (deadzone)
         digitalWrite(pinIn1, LOW);
         digitalWrite(pinIn2, LOW);
         ledcWrite(channel, 0);
@@ -66,29 +68,39 @@ void loop() {
         digitalWrite(ONBOARD_LED, (millis() / 500) % 2);
         return;
     }
-
-    // Connected: Solid LED
     digitalWrite(ONBOARD_LED, HIGH);
 
-    // --- Tank Drive Control ---
-    // Left Stick Y (ly) controls Left Motors
-    // Right Stick Y (ry) controls Right Motors
-    // PS3 Y axis: Up is negative (-128), Down is positive (127)
-    // We invert it so Up is positive.
+    // --- Arcade Drive Logic (Left Stick Only) ---
+    // LY: Up = -128, Down = 127. We invert so Up is positive.
+    // LX: Left = -128, Right = 127.
     
-    int leftY = -Ps3.data.analog.stick.ly; 
-    int rightY = -Ps3.data.analog.stick.ry;
+    int throttle = -Ps3.data.analog.stick.ly; 
+    int steering = Ps3.data.analog.stick.lx;  
 
-    // Map -128..127 to -255..255
-    int leftSpeed = map(leftY, -128, 127, -255, 255);
-    int rightSpeed = map(rightY, -128, 127, -255, 255);
+    // Deadzone adjustment for stick drift
+    if (abs(throttle) < 10) throttle = 0;
+    if (abs(steering) < 10) steering = 0;
 
-    setMotor(leftSpeed, IN1, IN2, pwmChannelA);
-    setMotor(rightSpeed, IN3, IN4, pwmChannelB);
+    // Mixing algorithm
+    // Move Forward: Both positive
+    // Turn Right: Left increases, Right decreases
+    int leftMotorSpeed = throttle + steering;
+    int rightMotorSpeed = throttle - steering;
 
+    // Map the stick values (-128 to 127) roughly to PWM (-255 to 255)
+    // We multiply by 2 to get close to full PWM range
+    leftMotorSpeed = leftMotorSpeed * 2;
+    rightMotorSpeed = rightMotorSpeed * 2;
+
+    // Apply to motors
+    setMotor(leftMotorSpeed, IN1, IN2, pwmChannelA);
+    setMotor(rightMotorSpeed, IN3, IN4, pwmChannelB);
+
+    // Debugging
     static unsigned long lastPrint = 0;
     if (millis() - lastPrint > 200) {
-        Serial.printf("L: %d -> %d | R: %d -> %d\n", leftY, leftSpeed, rightY, rightSpeed);
+        Serial.printf("Stick Y: %d, X: %d || L_Speed: %d, R_Speed: %d\n", 
+                      throttle, steering, leftMotorSpeed, rightMotorSpeed);
         lastPrint = millis();
     }
     
