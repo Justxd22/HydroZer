@@ -1,15 +1,35 @@
 #include <Arduino.h>
-#include <HardwareSerial.h>
-#include <Wire.h>
-#include <string.h>
-
-HardwareSerial serial(0);
+#include <Ps3Controller.h>
 
 void setup() {
-  serial.begin(9600);
+    Serial.begin(9600);  
+    Ps3.begin("01:02:03:04:05:06"); 
+
+    Serial.println("PS3 Controller Initialized. Waiting for connection...");
 }
 
 void loop() {
-  serial.println("Hello, World!");
-  delay(2000);
+    if (Ps3.isConnected()) {
+        Serial.println("Controller Connected!");
+
+        // Read Left Stick
+        int ly = Ps3.data.analog.stick.ly;
+        int lx = Ps3.data.analog.stick.lx;
+        
+        // Read Right Stick
+        int ry = Ps3.data.analog.stick.ry;
+        int rx = Ps3.data.analog.stick.rx;
+
+        Serial.printf("LX: %4d, LY: %4d || RX: %4d, RY: %4d\n", lx, ly, rx, ry);
+
+        if (Ps3.data.button.cross) Serial.println("Pressing Cross");
+        if (Ps3.data.button.square) Serial.println("Pressing Square");
+        if (Ps3.data.button.triangle) Serial.println("Pressing Triangle");
+        if (Ps3.data.button.circle) Serial.println("Pressing Circle");
+
+    } else {
+        Serial.println("Waiting for controller...");
+    }
+    
+    delay(100); // minimal delay to avoid flooding serial
 }
