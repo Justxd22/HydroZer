@@ -117,13 +117,35 @@ void setArmMotor(int state, int pin1, int pin2) {
     }
 }
 
+void buzz(int on_ms, int off_ms = 40) {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(on_ms);
+  digitalWrite(BUZZER_PIN, LOW);
+  delay(off_ms);
+}
+
+void beepConnected() {
+  buzz(80, 60);
+  buzz(140, 0);
+}
+
+void beepDisconnected() {
+  buzz(360, 580);
+  buzz(80, 0);
+}
+
+int connectedState = 0;
 void loop() {
     if (!Ps3.isConnected()) {
+        connectedState = 0;
         digitalWrite(ONBOARD_LED, (millis() / 500) % 2);
         // Beep slowly if disconnected? Optional.
+        beepDisconnected();
         return;
     }
     digitalWrite(ONBOARD_LED, HIGH);
+    if (!connectedState) beepConnected();
+    connectedState = 1;
 
     // ============================
     // 1. DRIVING LOGIC (Left Stick)
