@@ -13,8 +13,6 @@ const int IN4 = 12; // Right Motor Dir 2
 const int ENB = 13; // Right Motor Speed (PWM)
 
 // --- ARM MOTORS (L298N #2 & #3) ---
-// No PWM needed, full speed (Digital HIGH/LOW)
-
 // Arm Motor 1 (Controlled by R2/L2)
 const int ARM1_IN1 = 16;
 const int ARM1_IN2 = 17;
@@ -31,7 +29,9 @@ const int ARM3_IN2 = 34;
 const int ARM4_IN1 = 32; 
 const int ARM4_IN2 = 33; 
 
-const int ONBOARD_LED = 15; // Usually 2 on ESP32 DevKit
+// --- EXTRAS ---
+const int ONBOARD_LED = 15; 
+const int BUZZER_PIN = 4; // Active Buzzer
 
 // PWM Properties (Driving Motors Only)
 const int freq = 30000;
@@ -48,6 +48,7 @@ void setup() {
     pinMode(IN3, OUTPUT);
     pinMode(IN4, OUTPUT);
     pinMode(ONBOARD_LED, OUTPUT);
+    pinMode(BUZZER_PIN, OUTPUT);
 
     // Setup PWM
     ledcSetup(pwmChannelA, freq, resolution);
@@ -67,6 +68,15 @@ void setup() {
 
     pinMode(ARM4_IN1, OUTPUT);
     pinMode(ARM4_IN2, OUTPUT);
+
+    // Startup Beep Sequence
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(100);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
 
     // Initialize PS3
     Ps3.begin("9C:B6:D0:DD:9D:10"); 
@@ -109,8 +119,8 @@ void setArmMotor(int state, int pin1, int pin2) {
 
 void loop() {
     if (!Ps3.isConnected()) {
-        // Blink LED to indicate disconnected
         digitalWrite(ONBOARD_LED, (millis() / 500) % 2);
+        // Beep slowly if disconnected? Optional.
         return;
     }
     digitalWrite(ONBOARD_LED, HIGH);
@@ -123,6 +133,18 @@ void loop() {
 
     if (abs(throttle) < 10) throttle = 0;
     if (abs(steering) < 10) steering = 0;
+
+    // --- Reverse Beeper Logic ---
+    if (throttle < -20) {
+        // Blink Buzzer every 500ms
+        if ((millis() / 300) % 2 == 0) {
+            digitalWrite(BUZZER_PIN, HIGH);
+        } else {
+            digitalWrite(BUZZER_PIN, LOW);
+        }
+    } else {
+        digitalWrite(BUZZER_PIN, LOW);
+    }
 
     int leftSpeed = throttle + steering;
     int rightSpeed = throttle - steering;
