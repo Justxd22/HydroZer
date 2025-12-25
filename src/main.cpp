@@ -22,8 +22,8 @@ const int ARM2_IN1 = 18;
 const int ARM2_IN2 = 19;
 
 // Arm Motor 3 (Controlled by Triangle/Cross & Circle/Square)
-const int ARM3_IN1 = 35;
-const int ARM3_IN2 = 34;
+const int ARM3_IN1 = 22;
+const int ARM3_IN2 = 23;
 
 // Arm Motor 4 (Controlled by Right Joystick)
 const int ARM4_IN1 = 32; 
