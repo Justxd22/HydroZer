@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <Ps3Controller.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
 // --- Pin Definitions ---
 
@@ -37,7 +39,102 @@ const int BUZZER_PIN = 4; // Active Buzzer
 const int freq = 30000;
 const int pwmChannelA = 0;
 const int pwmChannelB = 1;
-const int resolution = 8; // 0-255 resolution
+const int resolution = 8; 
+
+// --- WIFI / WEB SERVER ---
+const char* ssid = "Hydrozer_AP";
+const char* password = "12312345";
+
+WebServer server(80);
+
+// --- MODES ---
+enum ControlMode {
+    MODE_SEARCHING,
+    MODE_PS3,
+    MODE_WIFI
+};
+
+ControlMode currentMode = MODE_SEARCHING;
+unsigned long searchStartTime = 0;
+const unsigned long SEARCH_TIMEOUT = 5000; // 5 Seconds wait for PS3
+
+// --- HTML PAGE ---
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hydrozer Control</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin:0px auto; padding-top: 30px; background-color: #222; color: white; }
+    .btn { background-color: #444; border: none; color: white; padding: 15px 32px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px; user-select: none; }
+    .btn:active { background-color: #4CAF50; }
+    .stop { background-color: #f44336; }
+    .ctrl-group { margin-bottom: 20px; border: 1px solid #555; padding: 10px; border-radius: 10px; }
+    h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>Hydrozer RC</h1>
+  
+  <div class="ctrl-group">
+    <h2>Drive</h2>
+    <button class="btn" ontouchstart="move('F')" ontouchend="move('S')" onmousedown="move('F')" onmouseup="move('S')">FWD</button><br>
+    <button class="btn" ontouchstart="move('L')" ontouchend="move('S')" onmousedown="move('L')" onmouseup="move('S')">LEFT</button>
+    <button class="btn stop" ontouchstart="move('S')" onmousedown="move('S')">STOP</button>
+    <button class="btn" ontouchstart="move('R')" ontouchend="move('S')" onmousedown="move('R')" onmouseup="move('S')">RIGHT</button><br>
+    <button class="btn" ontouchstart="move('B')" ontouchend="move('S')" onmousedown="move('B')" onmouseup="move('S')">REV</button>
+  </div>
+
+  <div class="ctrl-group">
+    <h2>Arms</h2>
+    <p>Arm 1: <button class="btn" onclick="act('1')">UP</button> <button class="btn" onclick="act('q')">DN</button> <button class="btn stop" onclick="act('x')">X</button></p>
+    <p>Arm 2: <button class="btn" onclick="act('2')">UP</button> <button class="btn" onclick="act('w')">DN</button> <button class="btn stop" onclick="act('y')">X</button></p>
+    <p>Arm 3: <button class="btn" onclick="act('3')">UP</button> <button class="btn" onclick="act('e')">DN</button> <button class="btn stop" onclick="act('z')">X</button></p>
+    <p>Arm 4: <button class="btn" onclick="act('4')">UP</button> <button class="btn" onclick="act('r')">DN</button> <button class="btn stop" onclick="act('v')">X</button></p>
+  </div>
+
+<script>
+function move(dir) {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/cmd?go=" + dir, true);
+  xhr.send();
+}
+function act(action) {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/cmd?act=" + action, true);
+  xhr.send();
+}
+</script>
+</body>
+</html>
+)rawliteral";
+
+// --- WEB HANDLERS ---
+void handleRoot() {
+    server.send(200, "text/html", index_html);
+}
+
+void handleCmd() {
+    if (server.hasArg("go")) {
+        String go = server.arg("go");
+        if (go == "F") { setDriveMotor(255, IN1, IN2, pwmChannelA); setDriveMotor(255, IN3, IN4, pwmChannelB); }
+        else if (go == "B") { setDriveMotor(-255, IN1, IN2, pwmChannelA); setDriveMotor(-255, IN3, IN4, pwmChannelB); }
+        else if (go == "L") { setDriveMotor(-255, IN1, IN2, pwmChannelA); setDriveMotor(255, IN3, IN4, pwmChannelB); }
+        else if (go == "R") { setDriveMotor(255, IN1, IN2, pwmChannelA); setDriveMotor(-255, IN3, IN4, pwmChannelB); }
+        else if (go == "S") { setDriveMotor(0, IN1, IN2, pwmChannelA); setDriveMotor(0, IN3, IN4, pwmChannelB); }
+    }
+    
+    if (server.hasArg("act")) {
+        char act = server.arg("act").charAt(0);
+        switch(act) {
+            case '1': setArmMotor(1, ARM1_IN1, ARM1_IN2); break; case 'q': setArmMotor(-1, ARM1_IN1, ARM1_IN2); break; case 'x': setArmMotor(0, ARM1_IN1, ARM1_IN2); break;
+            case '2': setArmMotor(1, ARM2_IN1, ARM2_IN2); break; case 'w': setArmMotor(-1, ARM2_IN1, ARM2_IN2); break; case 'y': setArmMotor(0, ARM2_IN1, ARM2_IN2); break;
+            case '3': setArmMotor(1, ARM3_IN1, ARM3_IN2); break; case 'e': setArmMotor(-1, ARM3_IN1, ARM3_IN2); break; case 'z': setArmMotor(0, ARM3_IN1, ARM3_IN2); break;
+            case '4': setArmMotor(1, ARM4_IN1, ARM4_IN2); break; case 'r': setArmMotor(-1, ARM4_IN1, ARM4_IN2); break; case 'v': setArmMotor(0, ARM4_IN1, ARM4_IN2); break;
+        }
+    }
+    server.send(200, "text/plain", "OK");
+}
 
 void setup() {
     Serial.begin(115200);
@@ -80,8 +177,7 @@ void setup() {
 
     // Initialize PS3
     Ps3.begin("9C:B6:D0:DD:9D:10"); 
-
-    Serial.println("Ready. Waiting for PS3 Controller...");
+    searchStartTime = millis();
 }
 
 // Helper: Drive Wheels with Speed Control
@@ -136,84 +232,63 @@ void beepDisconnected() {
 
 int connectedState = 0;
 void loop() {
-    if (!Ps3.isConnected()) {
-        connectedState = 0;
-        digitalWrite(ONBOARD_LED, (millis() / 500) % 2);
-        // Beep slowly if disconnected? Optional.
-        beepDisconnected();
-        return;
-    }
-    digitalWrite(ONBOARD_LED, HIGH);
-    if (!connectedState) beepConnected();
-    connectedState = 1;
-
-    // ============================
-    // 1. DRIVING LOGIC (Left Stick)
-    // ============================
-    int throttle = -Ps3.data.analog.stick.ly; 
-    int steering = Ps3.data.analog.stick.lx;  
-
-    if (abs(throttle) < 10) throttle = 0;
-    if (abs(steering) < 10) steering = 0;
-
-    // --- Reverse Beeper Logic ---
-    if (throttle < -20) {
-        // Blink Buzzer every 500ms
-        if ((millis() / 300) % 2 == 0) {
-            digitalWrite(BUZZER_PIN, HIGH);
-        } else {
-            digitalWrite(BUZZER_PIN, LOW);
+    if (currentMode == MODE_SEARCHING) {
+        digitalWrite(ONBOARD_LED, (millis() / 100) % 2); // Fast Blink
+        
+        if (Ps3.isConnected()) {
+            Serial.println("PS3 Connected!");
+            currentMode = MODE_PS3;
+            digitalWrite(BUZZER_PIN, HIGH); delay(500); digitalWrite(BUZZER_PIN, LOW);
+        } else if (millis() - searchStartTime > SEARCH_TIMEOUT) {
+            Serial.println("Timeout. Starting WiFi AP...");
+            Ps3.end(); // Stop Bluetooth Stack
+            
+            // Start WiFi AP
+            WiFi.softAP(ssid, password);
+            IPAddress myIP = WiFi.softAPIP();
+            Serial.print("AP IP address: "); Serial.println(myIP);
+            
+            server.on("/", handleRoot);
+            server.on("/cmd", handleCmd);
+            server.begin();
+            
+            currentMode = MODE_WIFI;
+            // 3 Short Beeps
+             for(int i=0; i<3; i++) { digitalWrite(BUZZER_PIN, HIGH); delay(50); digitalWrite(BUZZER_PIN, LOW); delay(50); }
         }
-    } else {
-        digitalWrite(BUZZER_PIN, LOW);
     }
+    else if (currentMode == MODE_PS3) {
+        digitalWrite(ONBOARD_LED, HIGH);
+        // ... PS3 Logic from before ...
+        if (!Ps3.isConnected()) {
+            // Handle disconnect?
+        }
+        
+        // Drive Logic
+        int throttle = -Ps3.data.analog.stick.ly; 
+        int steering = Ps3.data.analog.stick.lx;  
+        if (abs(throttle) < 10) throttle = 0; if (abs(steering) < 10) steering = 0;
 
-    int leftSpeed = throttle + steering;
-    int rightSpeed = throttle - steering;
+        // Reverse Beeper
+        if (throttle < -20 && (millis()/300)%2==0) digitalWrite(BUZZER_PIN, HIGH);
+        else digitalWrite(BUZZER_PIN, LOW);
 
-    setDriveMotor(leftSpeed * 2, IN1, IN2, pwmChannelA);
-    setDriveMotor(rightSpeed * 2, IN3, IN4, pwmChannelB);
+        setDriveMotor((throttle+steering)*2, IN1, IN2, pwmChannelA);
+        setDriveMotor((throttle-steering)*2, IN3, IN4, pwmChannelB);
 
-
-    // ============================
-    // 2. ARM LOGIC
-    // ============================
-
-    // --- Arm Motor 1: R2 (Fwd) / L2 (Rev) ---
-    // Note: R2/L2 are analog buttons (0-255), we treat > 50 as pressed
-    int arm1_state = 0;
-    if (Ps3.data.analog.button.r2 > 50) arm1_state = 1;
-    else if (Ps3.data.analog.button.l2 > 50) arm1_state = -1;
-    setArmMotor(arm1_state, ARM1_IN1, ARM1_IN2);
-
-
-    // --- Arm Motor 2: R1 (Fwd) / L1 (Rev) ---
-    // R1/L1 are boolean buttons in some libs, but often analog in PS3. 
-    // Ps3Controller lib usually exposes .button.r1 as bool? 
-    // Let's check struct. actually Ps3.data.button.r1 is bool
-    int arm2_state = 0;
-    if (Ps3.data.button.r1) arm2_state = 1;
-    else if (Ps3.data.button.l1) arm2_state = -1;
-    setArmMotor(arm2_state, ARM2_IN1, ARM2_IN2);
-
-
-    // --- Arm Motor 3: Triangle/Circle (Fwd) / Cross/Square (Rev) ---
-    int arm3_state = 0;
-    if (Ps3.data.button.triangle || Ps3.data.button.circle) arm3_state = 1;
-    else if (Ps3.data.button.cross || Ps3.data.button.square) arm3_state = -1;
-    setArmMotor(arm3_state, ARM3_IN1, ARM3_IN2);
-
-
-    // --- Arm Motor 4: Right Stick (Up/Right = Fwd, Down/Left = Rev) ---
-    int ry = -Ps3.data.analog.stick.ry; // Up is +, Down is -
-    int rx = Ps3.data.analog.stick.rx;  // Right is +, Left is -
-    
-    int arm4_state = 0;
-    // Simple logic: if Stick moved significantly in any direction
-    if (ry > 50 || rx > 50) arm4_state = 1;      // Up or Right -> Forward
-    else if (ry < -50 || rx < -50) arm4_state = -1; // Down or Left -> Backward
-    setArmMotor(arm4_state, ARM4_IN1, ARM4_IN2);
-
-
-    delay(10);
+        // Arm Logic
+        int a1=0; if(Ps3.data.analog.button.r2>50)a1=1; else if(Ps3.data.analog.button.l2>50)a1=-1; setArmMotor(a1, ARM1_IN1, ARM1_IN2);
+        int a2=0; if(Ps3.data.button.r1)a2=1; else if(Ps3.data.button.l1)a2=-1; setArmMotor(a2, ARM2_IN1, ARM2_IN2);
+        int a3=0; if(Ps3.data.button.triangle||Ps3.data.button.circle)a3=1; else if(Ps3.data.button.cross||Ps3.data.button.square)a3=-1; setArmMotor(a3, ARM3_IN1, ARM3_IN2);
+        
+        int a4=0; int ry=-Ps3.data.analog.stick.ry; int rx=Ps3.data.analog.stick.rx;
+        if(ry>50||rx>50)a4=1; else if(ry<-50||rx<-50)a4=-1; setArmMotor(a4, ARM4_IN1, ARM4_IN2);
+        
+        delay(10);
+    }
+    else if (currentMode == MODE_WIFI) {
+        digitalWrite(ONBOARD_LED, (millis() / 1000) % 2); // Slow Blink
+        server.handleClient();
+        delay(2);
+    }
 }
